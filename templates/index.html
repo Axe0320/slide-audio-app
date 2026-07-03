@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>スライド原稿 → 音声ファイル変換</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container">
+  <h1>スライド原稿 → 音声ファイル変換</h1>
+
+  <section class="card">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="file">ファイルから読み込む</button>
+      <button class="tab-btn" data-tab="paste">テキストを貼り付ける</button>
+    </div>
+
+    <div class="tab-panel" id="tab-file">
+      <label class="dropzone" id="dropzone" for="fileInput">
+        <div class="dropzone-icon" id="dropzoneIcon">📄</div>
+        <div class="dropzone-text" id="dropzoneText">ここに原稿ファイル（.txt）をドラッグ＆ドロップ</div>
+        <div class="dropzone-sub" id="dropzoneSub">またはクリックしてファイルを選ぶ</div>
+        <div class="dropzone-filename hidden" id="dropzoneFilename"></div>
+      </label>
+      <input type="file" id="fileInput" accept=".txt" class="visually-hidden">
+    </div>
+    <div class="tab-panel hidden" id="tab-paste">
+      <textarea id="pasteInput" rows="10" placeholder="ここに原稿テキストを貼り付け"></textarea>
+    </div>
+
+    <div class="section-gap"></div>
+
+    <div class="row">
+      <label class="section-label">見出し</label>
+      <select id="keywordPreset">
+        <option value="Slide">Slide N: タイトル</option>
+        <option value="スライド">スライドN: タイトル</option>
+        <option value="Chapter">Chapter N: タイトル</option>
+        <option value="Section">Section N: タイトル</option>
+        <option value="custom">その他（自分で入力）</option>
+      </select>
+      <input type="text" id="keywordCustom" placeholder="キーワードを入力" class="hidden" style="flex:1;">
+    </div>
+
+    <button id="detectBtn" class="primary-btn">見出しを検出する</button>
+    <button id="detectAppendBtn" class="primary-btn append-btn">既存のリストに追加する</button>
+    <div class="hint">※「見出しを検出する」は結果を置き換え、「既存のリストに追加する」は今の一覧の続きに追記します</div>
+    <div id="parseError" class="error hidden"></div>
+  </section>
+
+  <section class="card hidden" id="slidesSection">
+    <h2>検出結果（タイトル編集可・チェックが生成対象）</h2>
+    <div class="row">
+      <button id="selectAllBtn" class="secondary-btn">全て選択</button>
+      <button id="selectNoneBtn" class="secondary-btn">全て解除</button>
+    </div>
+    <div id="slidesList"></div>
+    <button id="addSlideBtn" class="secondary-btn add-btn">＋ 手動でスライドを追加</button>
+
+    <h2>出力設定</h2>
+    <div class="row">
+      <label>保存先</label>
+      <input type="text" id="outputDir" placeholder="output フォルダ（未指定時は自動フォルダ）">
+      <button id="pickFolderBtn" class="secondary-btn">参照</button>
+    </div>
+    <div class="row">
+      <label>アルバム名</label>
+      <input type="text" id="albumInput" placeholder="iTunes等でアルバムとして表示される名前">
+    </div>
+    <div class="row">
+      <label>エンジン</label>
+      <label><input type="radio" name="engine" value="edge" checked> edge-tts（高音質・要ネット接続）</label>
+      <label><input type="radio" name="engine" value="sapi"> Windows標準（オフライン）</label>
+    </div>
+    <div class="row">
+      <label>言語</label>
+      <label><input type="radio" name="voiceLang" value="ja-JP" checked> 日本語</label>
+      <label><input type="radio" name="voiceLang" value="en-US"> English</label>
+    </div>
+    <div class="row" id="voiceGenderRow">
+      <label>性別</label>
+      <label><input type="radio" name="voiceGender" value="all" checked> すべて</label>
+      <label><input type="radio" name="voiceGender" value="Female"> 女性</label>
+      <label><input type="radio" name="voiceGender" value="Male"> 男性</label>
+    </div>
+    <div class="row">
+      <label>音声</label>
+      <select id="voiceSelect"></select>
+    </div>
+    <div class="row" id="rateRow">
+      <label>速度</label>
+      <input type="range" id="rateSlider" min="-50" max="100" step="5" value="0">
+      <span id="rateValue" class="slider-value">+0%</span>
+    </div>
+    <div class="row" id="pitchRow">
+      <label>ピッチ</label>
+      <input type="range" id="pitchSlider" min="-50" max="50" step="5" value="0">
+      <span id="pitchValue" class="slider-value">+0Hz</span>
+    </div>
+    <div class="row">
+      <label>文の間</label>
+      <input type="range" id="sentencePauseSlider" min="0" max="20" step="1" value="0">
+      <span id="sentencePauseValue" class="slider-value">0.0秒</span>
+    </div>
+    <div class="row">
+      <label>段落の間</label>
+      <input type="range" id="paragraphPauseSlider" min="0" max="30" step="1" value="0">
+      <span id="paragraphPauseValue" class="slider-value">0.0秒</span>
+    </div>
+    <div class="row">
+      <label></label>
+      <button id="previewBtn" class="secondary-btn preview-btn" type="button">🔊 この設定で試聴する</button>
+      <span id="previewStatus" class="hint" style="margin:0;"></span>
+    </div>
+    <audio id="previewAudio" class="hidden"></audio>
+    <div class="row">
+      <label>形式</label>
+      <label><input type="radio" name="format" value="mp3" checked> MP3</label>
+      <label><input type="radio" name="format" value="wav"> WAV</label>
+    </div>
+
+    <button id="generateBtn" class="primary-btn">音声を生成する</button>
+    <div class="hint">※原稿を一部修正した場合は、全文を再検出したうえで、変更したスライドだけチェックを残せば、そのファイルだけ再生成できます（トラック番号は原稿全体の位置を基準に正しく付与されます）</div>
+  </section>
+
+  <section class="card hidden" id="progressSection">
+    <h2>進捗</h2>
+    <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+    <div class="row" style="margin-top:14px;">
+      <div id="progressText"></div>
+      <button id="cancelBtn" class="secondary-btn hidden" type="button">■ 停止</button>
+    </div>
+  </section>
+
+  <section class="card hidden" id="resultsSection">
+    <h2>結果一覧</h2>
+    <div id="resultsList"></div>
+    <button id="downloadZipBtn" class="primary-btn">全てZIPでダウンロード</button>
+  </section>
+</div>
+<script src="/static/script.js"></script>
+</body>
+</html>
