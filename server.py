@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import io
 import json
 import re
@@ -525,7 +526,6 @@ def _run_generation_job(job_id, slides, output_dir, engine, voice_name, fmt, alb
 def api_generate():
     data = request.get_json(force=True)
     slides = data.get("slides", [])
-    output_dir = data.get("output_dir") or str(DEFAULT_OUTPUT_DIR)
     engine = data.get("engine", "sapi")
     voice_name = data.get("voice") or ("en-US-AndrewNeural" if engine == "edge" else "Microsoft Zira Desktop")
     fmt = data.get("format", "mp3")
@@ -534,6 +534,16 @@ def api_generate():
     pitch_hz = int(data.get("pitch", 0) or 0)
     sentence_pause = float(data.get("sentence_pause", 0) or 0)
     paragraph_pause = float(data.get("paragraph_pause", 0) or 0)
+
+    output_dir = data.get("output_dir")
+    if output_dir:
+        output_dir = str(output_dir)
+    else:
+        # No custom destination chosen: create a fresh, uniquely-named subfolder
+        # per run under output/, instead of dumping every run into the same folder.
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_folder = sanitize_filename(f"{album}_{timestamp}")
+        output_dir = str(DEFAULT_OUTPUT_DIR / run_folder)
 
     if not slides:
         return jsonify({"error": "スライドがありません"}), 400
