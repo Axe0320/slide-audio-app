@@ -157,15 +157,20 @@ $synth.Dispose()
         raise RuntimeError(f"TTS failed: {proc.stderr}")
 
 
-def convert_to_mp3(wav_path, mp3_path, title, track, total, album):
+def convert_to_mp3(wav_path, mp3_path, title, track, total, album, volume_db=0, artist=""):
     """Encode a WAV to MP3 (used for the SAPI engine, which outputs WAV)."""
+    audio_filter = f"volume={volume_db}dB" if volume_db != 0 else None
+    filter_args = ["-filter:a", audio_filter] if audio_filter else []
+    artist_args = ["-metadata", f"artist={artist}"] if artist else []
     proc = subprocess.run(
         [
             FFMPEG_PATH, "-y", "-i", str(wav_path),
+            *filter_args,
             "-codec:a", "libmp3lame", "-qscale:a", "2",
             "-metadata", f"title={title}",
             "-metadata", f"track={track}/{total}",
             "-metadata", f"album={album}",
+            *artist_args,
             str(mp3_path),
         ],
         capture_output=True, text=True
@@ -174,18 +179,37 @@ def convert_to_mp3(wav_path, mp3_path, title, track, total, album):
         raise RuntimeError(f"ffmpeg failed: {proc.stderr}")
 
 
-def tag_mp3(src_mp3, dst_mp3, title, track, total, album):
+def tag_mp3(src_mp3, dst_mp3, title, track, total, album, volume_db=0, artist=""):
     """Copy an already-encoded MP3 (e.g. from edge-tts) while embedding ID3 tags, no re-encode."""
-    proc = subprocess.run(
-        [
-            FFMPEG_PATH, "-y", "-i", str(src_mp3), "-c", "copy",
-            "-metadata", f"title={title}",
-            "-metadata", f"track={track}/{total}",
-            "-metadata", f"album={album}",
-            str(dst_mp3),
-        ],
-        capture_output=True, text=True
-    )
+    artist_args = ["-metadata", f"artist={artist}"] if artist else []
+    if volume_db != 0:
+        # Re-encode with volume filter when adjustment is requested.
+        audio_filter = f"volume={volume_db}dB"
+        proc = subprocess.run(
+            [
+                FFMPEG_PATH, "-y", "-i", str(src_mp3),
+                "-filter:a", audio_filter,
+                "-codec:a", "libmp3lame", "-qscale:a", "2",
+                "-metadata", f"title={title}",
+                "-metadata", f"track={track}/{total}",
+                "-metadata", f"album={album}",
+                *artist_args,
+                str(dst_mp3),
+            ],
+            capture_output=True, text=True
+        )
+    else:
+        proc = subprocess.run(
+            [
+                FFMPEG_PATH, "-y", "-i", str(src_mp3), "-c", "copy",
+                "-metadata", f"title={title}",
+                "-metadata", f"track={track}/{total}",
+                "-metadata", f"album={album}",
+                *artist_args,
+                str(dst_mp3),
+            ],
+            capture_output=True, text=True
+        )
     if proc.returncode != 0:
         raise RuntimeError(f"ffmpeg failed: {proc.stderr}")
 
@@ -234,7 +258,7 @@ def split_into_sentences(paragraph):
     return sentences or ([flat] if flat else [])
 
 
-def concatenate_with_pauses(segment_paths, silence_durations, output_path):
+def concatenate_with_pauses(segment_paths, silence_durations, output_path, volume_db=0):
     """Concatenate audio segments (mp3/wav), inserting a silent gap of
     silence_durations[i] seconds after segment_paths[i] (last entry has no trailing gap)."""
     inputs = []
@@ -254,7 +278,17 @@ def concatenate_with_pauses(segment_paths, silence_durations, output_path):
         if i < len(silence_durations) and silence_durations[i] > 0:
             add_input_and_normalize(["-f", "lavfi", "-i", f"anullsrc=r=24000:cl=mono:d={silence_durations[i]}"])
 
-    filter_complex = ";".join(filter_parts) + ";" + "".join(concat_labels) + f"concat=n={len(concat_labels)}:v=0:a=1[out]"
+    if volume_db != 0:
+        filter_complex = (
+            ";".join(filter_parts) + ";" + "".join(concat_labels)
+            + f"concat=n={len(concat_labels)}:v=0:a=1[concatout]"
+            + f";[concatout]volume={volume_db}dB[out]"
+        )
+    else:
+        filter_complex = (
+            ";".join(filter_parts) + ";" + "".join(concat_labels)
+            + f"concat=n={len(concat_labels)}:v=0:a=1[out]"
+        )
     cmd = [FFMPEG_PATH, "-y", *inputs, "-filter_complex", filter_complex, "-map", "[out]",
            "-codec:a", "libmp3lame", "-qscale:a", "2", str(output_path)]
     proc = subprocess.run(cmd, capture_output=True, text=True)
@@ -263,7 +297,7 @@ def concatenate_with_pauses(segment_paths, silence_durations, output_path):
 
 
 def synthesize_slide_segmented(text, output_dir, base_name, engine, voice_name, fmt, title, track, total, album,
-                                rate_percent, pitch_hz, sentence_pause, paragraph_pause):
+                                rate_percent, pitch_hz, sentence_pause, paragraph_pause, volume_db=0, artist=""):
     """Synthesize sentence-by-sentence and stitch the clips together with configurable
     silence gaps between sentences and between paragraphs."""
     paragraphs = split_into_paragraphs(text) or [text.strip() or title]
@@ -291,11 +325,11 @@ def synthesize_slide_segmented(text, output_dir, base_name, engine, voice_name, 
                 silence_durations.append(paragraph_pause if is_last_in_para else sentence_pause)
 
         raw_output = tmp_dir / "concat_raw.mp3"
-        concatenate_with_pauses(segment_paths, silence_durations, raw_output)
+        concatenate_with_pauses(segment_paths, silence_durations, raw_output, volume_db)
 
         if fmt == "mp3":
             final_path = output_dir / f"{base_name}.mp3"
-            tag_mp3(raw_output, final_path, title, track, total, album)
+            tag_mp3(raw_output, final_path, title, track, total, album, 0, artist)
         else:
             final_path = output_dir / f"{base_name}.wav"
             convert_to_wav(raw_output, final_path)
@@ -305,12 +339,12 @@ def synthesize_slide_segmented(text, output_dir, base_name, engine, voice_name, 
 
 
 def synthesize_slide(text, output_dir, base_name, engine, voice_name, fmt, title, track, total, album,
-                      rate_percent=0, pitch_hz=0, sentence_pause=0, paragraph_pause=0):
+                      rate_percent=0, pitch_hz=0, sentence_pause=0, paragraph_pause=0, volume_db=0, artist=""):
     """Synthesize one slide's audio and return the final Path, honoring engine + format."""
     if sentence_pause > 0 or paragraph_pause > 0:
         return synthesize_slide_segmented(
             text, output_dir, base_name, engine, voice_name, fmt, title, track, total, album,
-            rate_percent, pitch_hz, sentence_pause, paragraph_pause,
+            rate_percent, pitch_hz, sentence_pause, paragraph_pause, volume_db, artist,
         )
     if engine == "edge":
         raw_mp3 = output_dir / f"{base_name}__raw.mp3"
@@ -318,7 +352,7 @@ def synthesize_slide(text, output_dir, base_name, engine, voice_name, fmt, title
         try:
             if fmt == "mp3":
                 final_path = output_dir / f"{base_name}.mp3"
-                tag_mp3(raw_mp3, final_path, title, track, total, album)
+                tag_mp3(raw_mp3, final_path, title, track, total, album, volume_db, artist)
             else:
                 final_path = output_dir / f"{base_name}.wav"
                 convert_to_wav(raw_mp3, final_path)
@@ -330,7 +364,7 @@ def synthesize_slide(text, output_dir, base_name, engine, voice_name, fmt, title
         synthesize_wav(text, wav_path, voice_name, rate_percent)
         if fmt == "mp3":
             final_path = output_dir / f"{base_name}.mp3"
-            convert_to_mp3(wav_path, final_path, title, track, total, album)
+            convert_to_mp3(wav_path, final_path, title, track, total, album, volume_db, artist)
             wav_path.unlink(missing_ok=True)
             return final_path
         return wav_path
@@ -412,13 +446,14 @@ def api_preview():
     pitch_hz = int(request.args.get("pitch", 0) or 0)
     sentence_pause = float(request.args.get("sentence_pause", 0) or 0)
     paragraph_pause = float(request.args.get("paragraph_pause", 0) or 0)
+    volume_db = int(request.args.get("volume_db", 0) or 0)
     text = PREVIEW_TEXT.get(lang, PREVIEW_TEXT["en-US"])
 
     PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
     try:
         final_path = synthesize_slide(
             text, PREVIEW_DIR, "preview", engine, voice_name, "mp3",
-            "Preview", 1, 1, "Preview", rate_percent, pitch_hz, sentence_pause, paragraph_pause,
+            "Preview", 1, 1, "Preview", rate_percent, pitch_hz, sentence_pause, paragraph_pause, volume_db,
         )
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -479,7 +514,7 @@ def api_parse():
 
 
 def _run_generation_job(job_id, slides, output_dir, engine, voice_name, fmt, album, rate_percent, pitch_hz,
-                         sentence_pause, paragraph_pause):
+                         sentence_pause, paragraph_pause, volume_db=0, artist=""):
     job = JOBS[job_id]
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -505,7 +540,7 @@ def _run_generation_job(job_id, slides, output_dir, engine, voice_name, fmt, alb
             final_path = synthesize_slide(
                 body, output_dir, base_name, engine, voice_name, fmt,
                 slide["title"], track, total_tag, album, rate_percent, pitch_hz,
-                sentence_pause, paragraph_pause,
+                sentence_pause, paragraph_pause, volume_db, artist,
             )
 
             job["files"].append({
@@ -530,10 +565,12 @@ def api_generate():
     voice_name = data.get("voice") or ("en-US-AndrewNeural" if engine == "edge" else "Microsoft Zira Desktop")
     fmt = data.get("format", "mp3")
     album = data.get("album") or "Slides"
+    artist = data.get("artist") or ""
     rate_percent = int(data.get("rate", 0) or 0)
     pitch_hz = int(data.get("pitch", 0) or 0)
     sentence_pause = float(data.get("sentence_pause", 0) or 0)
     paragraph_pause = float(data.get("paragraph_pause", 0) or 0)
+    volume_db = int(data.get("volume_db", 0) or 0)
 
     output_dir = data.get("output_dir")
     if output_dir:
@@ -564,7 +601,7 @@ def api_generate():
     thread = threading.Thread(
         target=_run_generation_job,
         args=(job_id, slides, output_dir, engine, voice_name, fmt, album, rate_percent, pitch_hz,
-              sentence_pause, paragraph_pause),
+              sentence_pause, paragraph_pause, volume_db, artist),
         daemon=True,
     )
     thread.start()

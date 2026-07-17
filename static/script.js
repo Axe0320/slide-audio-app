@@ -130,6 +130,13 @@ paragraphPauseSlider.addEventListener("input", () => {
   paragraphPauseValue.textContent = `${(paragraphPauseSlider.value / 10).toFixed(1)}秒`;
 });
 
+const volumeSlider = document.getElementById("volumeSlider");
+const volumeValue = document.getElementById("volumeValue");
+volumeSlider.addEventListener("input", () => {
+  const v = parseInt(volumeSlider.value, 10);
+  volumeValue.textContent = v === 0 ? "±0dB" : `${v > 0 ? "+" : ""}${v}dB`;
+});
+
 const previewBtn = document.getElementById("previewBtn");
 const previewStatus = document.getElementById("previewStatus");
 const previewAudio = document.getElementById("previewAudio");
@@ -142,6 +149,7 @@ previewBtn.addEventListener("click", () => {
   const pitch = pitchSlider.value;
   const sentence_pause = sentencePauseSlider.value / 10;
   const paragraph_pause = paragraphPauseSlider.value / 10;
+  const volume_db = parseInt(volumeSlider.value, 10);
 
   if (!voice) {
     previewStatus.textContent = "音声を選択してください";
@@ -151,7 +159,7 @@ previewBtn.addEventListener("click", () => {
   previewBtn.disabled = true;
   previewStatus.textContent = "生成中...";
 
-  const params = new URLSearchParams({ engine, voice, lang, rate, pitch, sentence_pause, paragraph_pause });
+  const params = new URLSearchParams({ engine, voice, lang, rate, pitch, sentence_pause, paragraph_pause, volume_db });
   previewAudio.src = `/api/preview?${params.toString()}`;
   previewAudio.play().catch(() => {});
 });
@@ -350,6 +358,7 @@ document.getElementById("addSlideBtn").addEventListener("click", () => {
 document.getElementById("generateBtn").addEventListener("click", async () => {
   const outputDir = document.getElementById("outputDir").value.trim();
   const album = document.getElementById("albumInput").value.trim() || "Slides";
+  const artist = document.getElementById("artistInput").value.trim();
   const engine = getEngine();
   const voice = document.getElementById("voiceSelect").value;
   const format = document.querySelector('input[name="format"]:checked').value;
@@ -357,13 +366,14 @@ document.getElementById("generateBtn").addEventListener("click", async () => {
   const pitch = parseInt(pitchSlider.value, 10);
   const sentence_pause = sentencePauseSlider.value / 10;
   const paragraph_pause = paragraphPauseSlider.value / 10;
+  const volume_db = parseInt(volumeSlider.value, 10);
 
   const res = await fetch("/api/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      slides: currentSlides, output_dir: outputDir || null, engine, voice, format, album, rate, pitch,
-      sentence_pause, paragraph_pause,
+      slides: currentSlides, output_dir: outputDir || null, engine, voice, format, album, artist, rate, pitch,
+      sentence_pause, paragraph_pause, volume_db,
     }),
   });
   const data = await res.json();

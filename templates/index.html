@@ -68,6 +68,10 @@
       <input type="text" id="albumInput" placeholder="iTunes等でアルバムとして表示される名前">
     </div>
     <div class="row">
+      <label>アーティスト名</label>
+      <input type="text" id="artistInput" placeholder="iTunes等でアーティストとして表示される名前（省略可）">
+    </div>
+    <div class="row">
       <label>エンジン</label>
       <label><input type="radio" name="engine" value="edge" checked> edge-tts（高音質・要ネット接続）</label>
       <label><input type="radio" name="engine" value="sapi"> Windows標準（オフライン）</label>
@@ -106,6 +110,11 @@
       <label>段落の間</label>
       <input type="range" id="paragraphPauseSlider" min="0" max="30" step="1" value="0">
       <span id="paragraphPauseValue" class="slider-value">0.0秒</span>
+    </div>
+    <div class="row">
+      <label>音量</label>
+      <input type="range" id="volumeSlider" min="-20" max="20" step="1" value="0">
+      <span id="volumeValue" class="slider-value">±0dB</span>
     </div>
     <div class="row">
       <label></label>
